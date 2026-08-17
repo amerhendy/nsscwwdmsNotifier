@@ -148,7 +148,6 @@ except Exception:
         os.makedirs(APPDATA_DIR, exist_ok=True)
 
 LOCAL_DB_PATH = os.path.join(APPDATA_DIR, "dms_notifier.db")
-print(LOCAL_DB_PATH)
 year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
 
 # ================== PyQt5 imports ==================
@@ -661,11 +660,11 @@ def get_docs_ids_from_documents(user_id=None, manager_id=None, OrganizationID=No
 
     if user_id is not None:
         conditions.append("EmpID = %s")
-        params.append(manager_id)
+        params.append(user_id)
         
     if manager_id is not None:
         conditions.append("PersonID = %s")
-        params.append(user_id)
+        params.append(manager_id)
 
     if OrganizationID is not None:
         conditions.append("OrganizationID = %s")
@@ -771,7 +770,9 @@ def get_documents_info_by_ids(doc_ids, date_from=year_ago, include_org_names=Tru
             for row in rows:
                 record = dict(zip(columns, row))
                 InsertDate = record.get("InsertDate")
-                is_late = bool(InsertDate and InsertDate < now)
+                #is_late = bool(InsertDate and InsertDate < now)
+                late_days = (now - InsertDate).days if (InsertDate and InsertDate < now) else 0
+                is_late = bool(late_days > 2)
                 results.append({
                     "doc_id": record.get("DocumentID"),
                     "doc_code": record.get("DocumentCode"),
@@ -782,6 +783,7 @@ def get_documents_info_by_ids(doc_ids, date_from=year_ago, include_org_names=Tru
                     "InsertDate": InsertDate,
                     "year": record.get("year"),
                     "is_late": is_late,
+                    "late_days":late_days,
                     "is_closed": bool(record.get("Cloesd")),
                 })
             all_results.extend(results)
@@ -810,6 +812,12 @@ class NotificationDetailWindow(QDialog):
 
         filter_group = QGroupBox("فلترة")
         filter_layout = QHBoxLayout()
+
+        filter_layout.addWidget(QLabel("بحث في الموضوع:"))
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("اكتب للبحث...")
+        self.search_input.textChanged.connect(self.apply_filters)  # البحث التلقائي أثناء الكتابة
+        filter_layout.addWidget(self.search_input)
 
         filter_layout.addWidget(QLabel("من تاريخ:"))
         self.date_from = QDateEdit(calendarPopup=True)
@@ -875,7 +883,7 @@ class NotificationDetailWindow(QDialog):
             self.table.setItem(row_idx, 0, QTableWidgetItem(str(row_data.get("doc_code") or "")))
             self.table.setItem(row_idx, 1, QTableWidgetItem(str(row_data.get("subject") or "")))
             self.table.setItem(row_idx, 2, QTableWidgetItem(str(row_data.get("sender_org") or "")))
-            self.table.setItem(row_idx, 3, QTableWidgetItem(str(row_data.get("importance_date") or "")))
+            self.table.setItem(row_idx, 3, QTableWidgetItem(str(row_data.get("due_date") or "")))
             self.table.setItem(row_idx, 4, QTableWidgetItem(str(row_data.get("year") or "")))
             self.table.setItem(row_idx, 5, QTableWidgetItem(str(row_data.get("insert_date") or "")))
 
@@ -891,12 +899,19 @@ class NotificationDetailWindow(QDialog):
         self.table.sortItems(5, Qt.DescendingOrder)
 
     def apply_filters(self):
+        search_text = self.search_input.text().strip().lower()  # 🟢 نص البحث
         date_from = self.date_from.date().toPyDate()
         date_to = self.date_to.date().toPyDate()
         selected_org = self.org_combo.currentText()
 
         filtered = []
         for row in self.all_rows:
+            # 🟢 1. فلترة نص الموضوع
+            subject = str(row.get("subject") or "").lower()
+            if search_text and search_text not in subject:
+                continue
+
+            # 2. فلترة التاريخ
             insert_date_str = row.get("insert_date")
             if insert_date_str:
                 try:
@@ -909,6 +924,7 @@ class NotificationDetailWindow(QDialog):
             if insert_date and not (date_from <= insert_date <= date_to):
                 continue
 
+            # 3. فلترة الجهة
             if selected_org != "الكل" and row.get("sender_org") != selected_org:
                 continue
 
@@ -917,6 +933,7 @@ class NotificationDetailWindow(QDialog):
         self.populate_table(filtered)
 
     def reset_filters(self):
+        self.search_input.clear()  # 🟢 إفراغ صندوق البحث عند إعادة التعيين
         self.date_from.setDate(QDate.currentDate().addYears(-1))
         self.date_to.setDate(QDate.currentDate().addYears(1))
         self.org_combo.setCurrentIndex(0)

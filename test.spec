@@ -3,9 +3,9 @@
 block_cipher = None
 
 a = Analysis(
-    ['test.py'],
+    ['test2.py'],
     pathex=[],
-    binaries=[],
+    binaries=[('api-ms-win-core-path-l1-1-0.dll', '.')],
     datas=[],
     hiddenimports=[],
     hookspath=[],
